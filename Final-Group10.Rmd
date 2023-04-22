@@ -1,0 +1,733 @@
+---
+title: "Air Quality Project"
+author: "Akanksha Arora, Pranjal Totala, Thao Dinh, Suranjana Chowdhury"
+date: "2023-04-12"
+output: html_document
+---
+
+```{r}
+# Import packages
+library(tseries)
+#install.packages("xts")
+#install.packages("forecast", dependencies = TRUE)
+library(forecast)
+#install.packages("caTools")
+library(caTools)
+library(xts)
+```
+
+```{r}
+#Reading the Data
+data <- read.csv('Final_Dataframe2.csv')
+```
+
+
+```{r}
+# Function to split data into train and set
+train_test_split <- function(data) {
+  train <- window(data, start = 2013, end = c(2021, 12))
+  test <- window(data, start = 2022, end = c(2022, 12))
+  #train <- ts(data,start = 2013,end =c(2021,12),frequency = 12)
+  #test <- ts(data,start = 2022,end = c(2022,12) , frequency = 12)
+  result <- list("train" = train,"test" = test)
+  return(result)
+}
+```
+
+```{r}
+# ARIMA Fitting
+arima_fit <- function(train,test){
+  arima_model <- auto.arima(train)
+  summary(arima_model)
+  fc_arima <- forecast(arima_model,12)
+  plot(fc_arima)
+  acc_arima <- accuracy(fc_arima,test)
+  acc_arima
+  return(list("Model" = arima_model, "Forecast" = fc_arima))
+}
+```
+
+
+```{r}
+# Simple exponential smoothing
+exp_smooth_fitting <- function(train,test){
+  ses_model <- ses(train)
+  summary(ses_model)
+  fc_ses <- forecast(ses_model,12)
+  plot(fc_ses)
+  acc_ets <- accuracy(fc_ses,test)
+  acc_ets
+  return(list("Model" = ses_model, "Forecast" = fc_ses))
+}
+```
+
+```{r}
+# Double exponential smoothing
+db_smooth_fitting <- function(train,test){
+  db_model <- hw(train,seasonal = "additive")
+  summary(db_model)
+  fc_db <- forecast(db_model,h = length(test))
+  plot(fc_db)
+  acc_ets <- accuracy(fc_db,test[1:12])
+  acc_ets
+  return(list("Model" = db_model, "Forecast" = fc_db))
+}
+```
+
+```{r}
+# ETS Function
+ets_fitting <- function(train,test) {
+  ets_model <- ets(train)
+  summary(ets_model)
+  fc_ets <- forecast(ets_model,12)
+  plot(fc_ets)
+  acc_ets <- accuracy(fc_ets,test[1:12])
+  acc_ets
+  return(list("Model" = ets_model, "Forecast" = fc_ets))
+  }
+```
+
+
+```{r}
+# Check adf and kpss test for stationary
+adf_kpss_test <- function(ts_data,city_name) {
+  components <- decompose(ts_data)
+  plot(components)
+  title(sub = city_name)
+  print(adf.test(ts_data))
+  print(kpss.test(ts_data))
+}
+```
+
+```{r}
+# Forecast for 2023 and compare with 2022
+forecast_2023 <- function(data,org,name){
+  summary(data)
+  forecast_values <- forecast(data,h=12)
+  y_2022 <- window(org, start = c(2022, 1), end = c(2022, 12))
+  combined_ts <- cbind(y_2022,forecast_values$mean)
+  df <- as.data.frame(combined_ts)
+  st<-stack(df)
+  st<-na.omit(st)
+  comp <- ts(st$values,start=c(2022,1), end=c(2023,12),frequency = 12)
+  ts_95_percentile <- quantile(comp, probs = 0.95)
+  print(comp)
+  plot(comp,main=name)
+  abline(h = ts_95_percentile, col = "red",lty=2)
+  abline(v = '2023.0', col = "blue",lty=2)
+}
+```
+
+
+## 1. Bakersfield, CA
+```{r}
+# 1. Bakersfield, CA
+baker <- data[data$CBSA_NAME == 'Bakersfield, CA',c("year","PM25_Level_FINAL")]
+baker <- ts(baker$PM25_Level_FINAL, start = c(2013,01), end = c(2022,12), frequency = 12)
+
+adf_kpss_test(baker,"Bakersfield, CA")
+
+
+par(mfrow=c(2,2)) 
+acf(baker, lag=50, main="ACF of Bakersfield, CA")
+pacf(baker, lag=50, main="PACF of Bakersfield, CA")
+acf(baker, lag.max = 12, main="SACF of Bakersfield, CA")
+pacf(baker, lag.max = 12, main="SPACF of Bakersfield, CA")
+
+
+# Split the data
+splited <- train_test_split(baker)
+baker_train <- splited$train
+baker_test <- splited$test
+baker_train
+baker_test
+# Reset plot size
+dev.off()
+
+```
+
+
+```{r}
+# Simple exponential smoothing
+fc_ses <- exp_smooth_fitting(baker_train,baker_test)
+summary(fc_ses$Model)
+ses_final <- data.frame(Actuals = baker_test[1:10], Forecast = fc_ses$Forecast$mean)
+ses_final
+
+# Double exponential smoothing
+fc_db <- db_smooth_fitting(baker_train,baker_test)
+summary(fc_db$Model)
+db_final <- data.frame(Actuals = baker_test, Forecast = fc_db$Forecast$mean)
+db_final
+
+# ETS
+fc_ets <- ets_fitting(baker_train,baker_test)
+summary(fc_ets$Model)
+ets_final <- data.frame(Actuals = baker_test, Forecast = fc_ets$Forecast$mean)
+ets_final
+
+# ARIMA fitting
+fc_arima <- arima_fit(baker_train,baker_test)
+summary(fc_arima$Model)
+arima_final <- data.frame(Actuals = baker_test, Forecast = fc_arima$Forecast$mean)
+arima_final
+```
+
+```{r}
+forecasts <- Arima(baker, order=c(1,0,0), seasonal = list(order = c(1,0,0), period = 12)) 
+forecast_2023(forecasts,baker,"Bakersfield, CA")
+```
+
+## 2. Fresno, CA
+```{r}
+# 2. Fresno, CA
+fresno<- data[data$CBSA_NAME == 'Fresno, CA',c("year","PM25_Level_FINAL")]
+fresno <- ts(fresno$PM25_Level_FINAL, start = c(2013,01), end = c(2022,12), frequency = 12)
+
+# Result is stationary
+adf_kpss_test(fresno,"Fresno, CA")
+par(mfrow=c(2,2)) 
+acf(fresno, lag=50, main="ACF of Fresno, CA")
+pacf(fresno, lag=50, main="PACF of Fresno, CA")
+acf(fresno, lag.max = 12, main="SACF of Fresno, CA")
+pacf(fresno, lag.max = 12, main="SPACF of Fresno, CA")
+
+
+# Split the data
+splited <- train_test_split(fresno)
+fresno_train <- splited$train
+fresno_test <- splited$test
+fresno_train
+fresno_test
+# Reset plot size
+dev.off()
+
+```
+```{r}
+
+# Simple exponential smoothing
+fc_ses <- exp_smooth_fitting(fresno_train,fresno_test)
+summary(fc_ses$Model)
+ses_final <- data.frame(Actuals = fresno_test[1:10], Forecast = fc_ses$Forecast$mean)
+ses_final
+
+# Double exponential smoothing
+fc_db <- db_smooth_fitting(fresno_train,fresno_test)
+summary(fc_db$Model)
+db_final <- data.frame(Actuals = fresno_test, Forecast = fc_db$Forecast$mean)
+db_final
+# 
+# # ETS
+fc_ets <- ets_fitting(fresno_train,fresno_test)
+summary(fc_ets$Model)
+ets_final <- data.frame(Actuals = fresno_test, Forecast = fc_ets$Forecast$mean)
+ets_final
+
+# ARIMA fitting
+fc_arima <- arima_fit(fresno_train,fresno_test)
+summary(fc_arima$Model)
+arima_final <- data.frame(Actuals = fresno_test, Forecast = fc_arima$Forecast$mean)
+arima_final
+```
+
+```{r}
+forecasts <- Arima(fresno, order=c(1,0,0), seasonal = list(order = c(2,0,0), period = 12)) 
+forecast_2023(forecasts,fresno,"Fresno, CA")
+```
+
+## 3. Visalia-Porterville, CA
+```{r}
+# 3. Visalia-Porterville, CA
+visalia<- data[data$CBSA_NAME == 'Visalia-Porterville, CA',c("year","PM25_Level_FINAL")]
+visalia <- ts(visalia$PM25_Level_FINAL, start = c(2013,01), end = c(2022,12), frequency = 12)
+
+# Result is stationary
+adf_kpss_test(visalia,"Visalia-Porterville, CA")
+par(mfrow=c(2,2)) 
+acf(visalia, lag=50, main="ACF of Visalia-Porterville, CA")
+pacf(visalia, lag=50, main="PACF of Visalia-Porterville, CA")
+acf(visalia, lag.max = 12, main="SACF of Visalia-Porterville, CA")
+pacf(visalia, lag.max = 12, main="SPACF of Visalia-Porterville, CA")
+
+# Split the data
+splited <- train_test_split(visalia)
+visalia_train <- splited$train
+visalia_test <- splited$test
+visalia_train
+visalia_test
+# Reset plot size
+dev.off()
+
+```
+```{r}
+
+# Simple exponential smoothing
+fc_ses <- exp_smooth_fitting(visalia_train,visalia_test)
+summary(fc_ses$Model)
+ses_final <- data.frame(Actuals = visalia_test[1:10], Forecast = fc_ses$Forecast$mean)
+ses_final
+
+# Double exponential smoothing
+fc_db <- db_smooth_fitting(visalia_train,visalia_test)
+summary(fc_db$Model)
+db_final <- data.frame(Actuals = visalia_test, Forecast = fc_db$Forecast$mean)
+db_final
+# 
+# # ETS
+fc_ets <- ets_fitting(visalia_train,visalia_test)
+summary(fc_ets$Model)
+ets_final <- data.frame(Actuals = visalia_test, Forecast = fc_ets$Forecast$mean)
+ets_final
+
+# ARIMA fitting
+fc_arima <- arima_fit(visalia_train,visalia_test)
+summary(fc_arima$Model)
+arima_final <- data.frame(Actuals = visalia_test, Forecast = fc_arima$Forecast$mean)
+arima_final
+```
+
+```{r}
+forecasts <- Arima(visalia, order=c(2,0,1)) 
+forecast_2023(forecasts,visalia,"Visalia-Porterville, CA")
+```
+
+## 4. San Francisco-Oakland-Hayward, CA
+
+```{r}
+# 4. San Francisco-Oakland-Hayward, CA
+sanfran<- data[data$CBSA_NAME == 'San Francisco-Oakland-Hayward, CA',c("year","PM25_Level_FINAL")]
+sanfran <- ts(sanfran$PM25_Level_FINAL, start = c(2013,01), end = c(2022,12), frequency = 12)
+
+# Result is stationary
+adf_kpss_test(sanfran,"San Francisco-Oakland-Hayward, CA")
+par(mfrow=c(2,2)) 
+acf(sanfran, lag=50, main="ACF of San Francisco-Oakland-Hayward, CA")
+pacf(sanfran, lag=50, main="PACF of San Francisco-Oakland-Hayward, CA")
+acf(sanfran, lag.max = 12, main="SACF of San Francisco-Oakland-Hayward, CA")
+pacf(sanfran, lag.max = 12, main="SPACF of San Francisco-Oakland-Hayward, CA")
+
+# Split the data
+splited <- train_test_split(sanfran)
+sanfran_train <- splited$train
+sanfran_test <- splited$test
+sanfran_train
+sanfran_test
+# Reset plot size
+dev.off()
+```
+
+```{r}
+
+# Simple exponential smoothing
+fc_ses <- exp_smooth_fitting(sanfran_train,sanfran_test)
+summary(fc_ses$Model)
+ses_final <- data.frame(Actuals = sanfran_test[1:10], Forecast = fc_ses$Forecast$mean)
+ses_final
+
+# Double exponential smoothing
+fc_db <- db_smooth_fitting(sanfran_train,sanfran_test)
+summary(fc_db$Model)
+db_final <- data.frame(Actuals = sanfran_test, Forecast = fc_db$Forecast$mean)
+db_final
+# 
+# # ETS
+fc_ets <- ets_fitting(sanfran_train,sanfran_test)
+summary(fc_ets$Model)
+ets_final <- data.frame(Actuals = sanfran_test, Forecast = fc_ets$Forecast$mean)
+ets_final
+
+# ARIMA fitting
+fc_arima <- arima_fit(sanfran_train,sanfran_test)
+summary(fc_arima$Model)
+arima_final <- data.frame(Actuals = sanfran_test, Forecast = fc_arima$Forecast$mean)
+arima_final
+```
+
+```{r}
+forecasts <- hw(sanfran,seasonal = "additive") 
+forecast_2023(forecasts,sanfran,"San Francisco-Oakland-Hayward, CA")
+```
+
+## 5. Los Angeles-Long Beach-Anaheim, CA
+```{r}
+# 5. Los Angeles-Long Beach-Anaheim, CA
+la<- data[data$CBSA_NAME == 'Los Angeles-Long Beach-Anaheim, CA',c("year","PM25_Level_FINAL")]
+la <- ts(la$PM25_Level_FINAL, start = c(2013,01), end = c(2022,12), frequency = 12)
+
+# Result is stationary
+adf_kpss_test(la,"Los Angeles-Long Beach-Anaheim, CA")
+par(mfrow=c(2,2)) 
+acf(la, lag=50, main="ACF of Los Angeles-Long Beach-Anaheim, CA")
+pacf(la, lag=50, main="PACF of Los Angeles-Long Beach-Anaheim, CA")
+acf(la, lag.max = 12, main="SACF of Los Angeles-Long Beach-Anaheim, CA")
+pacf(la, lag.max = 12, main="SPACF of Los Angeles-Long Beach-Anaheim, CA")
+
+# Split the data
+splited <- train_test_split(la)
+la_train <- splited$train
+la_test <- splited$test
+la_train
+la_test
+# Reset plot size
+dev.off()
+
+```
+```{r}
+
+# Simple exponential smoothing
+fc_ses <- exp_smooth_fitting(la_train,la_test)
+summary(fc_ses$Model)
+ses_final <- data.frame(Actuals = la_test[1:10], Forecast = fc_ses$Forecast$mean)
+ses_final
+
+# Double exponential smoothing
+fc_db <- db_smooth_fitting(la_train,la_test)
+summary(fc_db$Model)
+db_final <- data.frame(Actuals = la_test, Forecast = fc_db$Forecast$mean)
+db_final
+# 
+# # ETS
+fc_ets <- ets_fitting(la_train,la_test)
+summary(fc_ets$Model)
+ets_final <- data.frame(Actuals = la_test, Forecast = fc_ets$Forecast$mean)
+ets_final
+
+# ARIMA fitting
+fc_arima <- arima_fit(la_train,la_test)
+summary(fc_arima$Model)
+arima_final <- data.frame(Actuals = la_test, Forecast = fc_arima$Forecast$mean)
+arima_final
+```
+
+```{r}
+forecasts <- Arima(la, order=c(1,0,0), seasonal = list(order = c(1,0,0), period = 12)) 
+forecast_2023(forecasts,la,"Los Angeles-Long Beach-Anaheim, CA")
+```
+
+## 6. Cheyenne, WY
+```{r}
+# 6. Cheyenne, WY
+cheyen<- data[data$CBSA_NAME == 'Cheyenne, WY',c("year","PM25_Level_FINAL")]
+cheyen <- ts(cheyen$PM25_Level_FINAL, start = c(2013,01), end = c(2022,12), frequency = 12)
+
+# Result is stationary
+adf_kpss_test(cheyen,"Cheyenne, WY")
+par(mfrow=c(2,2)) 
+acf(cheyen, lag=50, main="ACF of Cheyenne, WY")
+pacf(cheyen, lag=50, main="PACF of Cheyenne, WY")
+acf(cheyen, lag.max = 12, main="SACF of Cheyenne, WY")
+pacf(cheyen, lag.max = 12, main="SPACF of Cheyenne, WY")
+
+
+# Split the data
+splited <- train_test_split(cheyen)
+cheyen_train <- splited$train
+cheyen_test <- splited$test
+cheyen_train
+cheyen_test
+# Reset plot size
+dev.off()
+
+```
+```{r}
+
+# Simple exponential smoothing
+fc_ses <- exp_smooth_fitting(cheyen_train,cheyen_test)
+summary(fc_ses$Model)
+ses_final <- data.frame(Actuals = cheyen_test[1:10], Forecast = fc_ses$Forecast$mean)
+ses_final
+
+# Double exponential smoothing
+fc_db <- db_smooth_fitting(cheyen_train,cheyen_test)
+summary(fc_db$Model)
+db_final <- data.frame(Actuals = cheyen_test, Forecast = fc_db$Forecast$mean)
+db_final
+# 
+# # ETS
+fc_ets <- ets_fitting(cheyen_train,cheyen_test)
+summary(fc_ets$Model)
+ets_final <- data.frame(Actuals = cheyen_test, Forecast = fc_ets$Forecast$mean)
+ets_final
+
+# ARIMA fitting
+fc_arima <- arima_fit(cheyen_train,cheyen_test)
+summary(fc_arima$Model)
+arima_final <- data.frame(Actuals = cheyen_test, Forecast = fc_arima$Forecast$mean)
+arima_final
+```
+
+```{r}
+forecasts <- Arima(cheyen, order=c(2,0,1)) 
+forecast_2023(forecasts,cheyen,"Cheyenne, WY")
+```
+
+## 7. Wilmington, NC
+```{r}
+# 7. Wilmington, NC
+wilmin<- data[data$CBSA_NAME == 'Wilmington, NC',c("year","PM25_Level_FINAL")]
+wilmin <- ts(wilmin$PM25_Level_FINAL, start = c(2013,01), end = c(2022,12), frequency = 12)
+
+# Result is non- stationary
+adf_kpss_test(wilmin,"Wilmington, NC")
+par(mfrow=c(2,2)) 
+acf(wilmin, lag=50, main="ACF of Wilmington, NC")
+pacf(wilmin, lag=50, main="PACF of Wilmington, NC")
+acf(wilmin, lag.max = 12, main="SACF of Wilmington, NC")
+pacf(wilmin, lag.max = 12, main="SPACF of Wilmington, NC")
+
+# Differencing - stationary
+wilmin_stat <- diff(wilmin)
+adf_kpss_test(wilmin_stat,"Wilmington, NC")
+par(mfrow=c(2,2)) 
+acf(wilmin_stat, lag=50, main="ACF of Wilmington, NC")
+pacf(wilmin_stat, lag=50, main="PACF of Wilmington, NC")
+acf(wilmin_stat, lag.max = 12, main="SACF of Wilmington, NC")
+pacf(wilmin_stat, lag.max = 12, main="SPACF of Wilmington, NC")
+
+
+# Split the data
+splited <- train_test_split(wilmin_stat)
+wilmin_train <- splited$train
+wilmin_test <- splited$test
+wilmin_train
+wilmin_test
+# Reset plot size
+dev.off()
+
+```
+
+```{r}
+
+# Simple exponential smoothing
+fc_ses <- exp_smooth_fitting(wilmin_train,wilmin_test)
+summary(fc_ses$Model)
+ses_final <- data.frame(Actuals = wilmin_test[1:10], Forecast = fc_ses$Forecast$mean)
+ses_final
+
+# Double exponential smoothing
+fc_db <- db_smooth_fitting(wilmin_train,wilmin_test)
+summary(fc_db$Model)
+db_final <- data.frame(Actuals = wilmin_test, Forecast = fc_db$Forecast$mean)
+db_final
+# 
+# # ETS
+fc_ets <- ets_fitting(wilmin_train,wilmin_test)
+summary(fc_ets$Model)
+ets_final <- data.frame(Actuals = wilmin_test, Forecast = fc_ets$Forecast$mean)
+ets_final
+
+# ARIMA fitting
+fc_arima <- arima_fit(wilmin_train,wilmin_test)
+summary(fc_arima$Model)
+arima_final <- data.frame(Actuals = wilmin_test, Forecast = fc_arima$Forecast$mean)
+arima_final
+```
+
+```{r}
+forecasts <- hw(wilmin_stat,seasonal = "additive")
+forecast_2023(forecasts,wilmin_stat,"Wilmington, NC")
+```
+
+
+
+## 8 Urban Honolulu, HI
+```{r}
+# 8 Urban Honolulu, HI
+honolulu<- data[data$CBSA_NAME == 'Urban Honolulu, HI',c("year","PM25_Level_FINAL")]
+honolulu <- ts(honolulu$PM25_Level_FINAL, start = c(2013,01), end = c(2022,12), frequency = 12)
+
+# Result is non-stationary
+adf_kpss_test(honolulu,"Urban Honolulu, HI")
+par(mfrow=c(2,2)) 
+acf(honolulu, lag=50, main="ACF of Urban Honolulu, HI")
+pacf(honolulu, lag=50, main="PACF of Urban Honolulu, HI")
+acf(honolulu, lag.max = 12, main="SACF of Urban Honolulu, HI")
+pacf(honolulu, lag.max = 12, main="SPACF of Urban Honolulu, HI")
+
+
+# Differencing - stationary
+honolulu_stat <- diff(honolulu)
+adf_kpss_test(honolulu_stat,"Urban Honolulu, HI")
+par(mfrow=c(2,2)) 
+acf(honolulu_stat, lag=50, main="ACF of Urban Honolulu, HI")
+pacf(honolulu_stat, lag=50, main="PACF of Urban Honolulu, HI")
+acf(honolulu_stat, lag.max = 12, main="SACF of Urban Honolulu, HI")
+pacf(honolulu_stat, lag.max = 12, main="SPACF of Urban Honolulu, HI")
+
+# Split the data
+splited <- train_test_split(honolulu_stat)
+honolulu_train <- splited$train
+honolulu_test <- splited$test
+honolulu_train
+honolulu_test
+# Reset plot size
+dev.off()
+
+```
+
+```{r}
+
+# Simple exponential smoothing
+fc_ses <- exp_smooth_fitting(honolulu_train,honolulu_test)
+summary(fc_ses$Model)
+ses_final <- data.frame(Actuals = honolulu_test[1:10], Forecast = fc_ses$Forecast$mean)
+ses_final
+
+# Double exponential smoothing
+fc_db <- db_smooth_fitting(honolulu_train,honolulu_test)
+summary(fc_db$Model)
+db_final <- data.frame(Actuals = honolulu_test, Forecast = fc_db$Forecast$mean)
+db_final
+# 
+# # ETS
+fc_ets <- ets_fitting(honolulu_train,honolulu_test)
+summary(fc_ets$Model)
+ets_final <- data.frame(Actuals = honolulu_test, Forecast = fc_ets$Forecast$mean)
+ets_final
+
+# ARIMA fitting
+fc_arima <- arima_fit(honolulu_train,honolulu_test)
+summary(fc_arima$Model)
+arima_final <- data.frame(Actuals = honolulu_test, Forecast = fc_arima$Forecast$mean)
+arima_final
+```
+
+```{r}
+forecasts <- Arima(honolulu_stat, order=c(1,0,1), seasonal = list(order = c(1,0,0), period = 12)) 
+forecast_2023(forecasts,honolulu_stat,"Urban Honolulu, HI")
+```
+
+
+## 9. Kahului-Wailuku-Lahaina, HI
+```{r}
+# 9. Kahului-Wailuku-Lahaina, HI
+kahului<- data[data$CBSA_NAME == 'Kahului-Wailuku-Lahaina, HI',c("year","PM25_Level_FINAL")]
+kahului <- ts(kahului$PM25_Level_FINAL, start = c(2013,01), end = c(2022,12), frequency = 12)
+
+# Result is stationary
+adf_kpss_test(kahului,"Kahului-Wailuku-Lahaina, HI")
+par(mfrow=c(2,2)) 
+acf(kahului, lag=50, main="ACF of Kahului-Wailuku-Lahaina, HI")
+pacf(kahului, lag=50, main="PACF of Kahului-Wailuku-Lahaina, HI")
+acf(kahului, lag.max = 12, main="SACF of Kahului-Wailuku-Lahaina, HI")
+pacf(kahului, lag.max = 12, main="SPACF of Kahului-Wailuku-Lahaina, HI")
+
+# Differencing - stationary
+kahului_stat <- diff(kahului)
+adf_kpss_test(kahului_stat,"Kahului-Wailuku-Lahaina, HI")
+
+par(mfrow=c(2,2)) 
+acf(kahului_stat, lag=50, main="ACF of Kahului-Wailuku-Lahaina, HI")
+pacf(kahului_stat, lag=50, main="PACF of Kahului-Wailuku-Lahaina, HI")
+acf(kahului_stat, lag.max = 12, main="SACF of Kahului-Wailuku-Lahaina, HI")
+pacf(kahului_stat, lag.max = 12, main="SPACF of Kahului-Wailuku-Lahaina, HI")
+
+# Split the data
+splited <- train_test_split(kahului_stat)
+kahului_train <- splited$train
+kahului_test <- splited$test
+kahului_train
+kahului_test
+# Reset plot size
+dev.off()
+
+```
+```{r}
+
+# Simple exponential smoothing
+fc_ses <- exp_smooth_fitting(kahului_train,kahului_test)
+summary(fc_ses$Model)
+ses_final <- data.frame(Actuals = kahului_test[1:10], Forecast = fc_ses$Forecast$mean)
+ses_final
+
+# Double exponential smoothing
+fc_db <- db_smooth_fitting(kahului_train,kahului_test)
+summary(fc_db$Model)
+db_final <- data.frame(Actuals = kahului_test, Forecast = fc_db$Forecast$mean)
+db_final
+# 
+# # ETS
+fc_ets <- ets_fitting(kahului_train,kahului_test)
+summary(fc_ets$Model)
+ets_final <- data.frame(Actuals = kahului_test, Forecast = fc_ets$Forecast$mean)
+ets_final
+
+# ARIMA fitting
+fc_arima <- arima_fit(kahului_train,kahului_test)
+summary(fc_arima$Model)
+arima_final <- data.frame(Actuals = kahului_test, Forecast = fc_arima$Forecast$mean)
+arima_final
+```
+
+```{r}
+forecasts <- Arima(kahului_stat, order=c(1,0,1), seasonal = list(order = c(1,0,0), period = 12)) 
+forecast_2023(forecasts,kahului_stat,"Kahului-Wailuku-Lahaina, HI")
+```
+
+
+## 10. Bangor, ME
+```{r}
+# 10. Bangor, ME
+bangor <- data[data$CBSA_NAME == 'Bangor, ME',c("year","PM25_Level_FINAL")]
+bangor <- ts(bangor$PM25_Level_FINAL, start = c(2013,01), end = c(2022,12), frequency = 12)
+
+# Result is not stationary
+adf_kpss_test(bangor,"Bangor, ME")
+par(mfrow=c(2,2)) 
+acf(bangor, lag=50, main="ACF of Bangor, ME")
+pacf(bangor, lag=50, main="PACF of Bangor, ME")
+acf(bangor, lag.max = 12, main="SACF of Bangor, ME")
+pacf(bangor, lag.max = 12, main="SPACF of Bangor, ME")
+
+# Differencing - stationary
+bangor_stat <- diff(bangor)
+adf_kpss_test(bangor_stat,"Bangor, ME")
+
+par(mfrow=c(2,2)) 
+acf(bangor_stat, lag=50, main="ACF of Bangor, ME")
+pacf(bangor_stat, lag=50, main="PACF of Bangor, ME")
+acf(bangor_stat, lag.max = 12, main="SACF of Bangor, ME")
+pacf(bangor_stat, lag.max = 12, main="SPACF of Bangor, ME")
+
+
+# Split the data
+splited <- train_test_split(bangor_stat)
+bangor_train <- splited$train
+bangor_test <- splited$test
+bangor_train
+bangor_test
+# Reset plot size
+dev.off()
+
+```
+
+```{r}
+# Simple exponential smoothing
+fc_ses <- exp_smooth_fitting(bangor_train,bangor_test)
+summary(fc_ses$Model)
+ses_final <- data.frame(Actuals = bangor_test[1:10], Forecast = fc_ses$Forecast$mean)
+ses_final
+
+# Double exponential smoothing
+fc_db <- db_smooth_fitting(bangor_train,bangor_test)
+summary(fc_db$Model)
+db_final <- data.frame(Actuals = bangor_test, Forecast = fc_db$Forecast$mean)
+db_final
+# 
+# ETS
+fc_ets <- ets_fitting(bangor_train,bangor_test)
+summary(fc_ets$Model)
+ets_final <- data.frame(Actuals = bangor_test, Forecast = fc_ets$Forecast$mean)
+ets_final
+
+# ARIMA fitting
+fc_arima <- arima_fit(bangor_train,bangor_test)
+summary(fc_arima$Model)
+arima_final <- data.frame(Actuals = bangor_test, Forecast = fc_arima$Forecast$mean)
+arima_final
+```
+
+```{r}
+forecasts <- Arima(bangor_stat, order=c(1,0,1), seasonal = list(order = c(1,0,1), period = 12)) 
+forecast_2023(forecasts,bangor_stat,"Bangor, ME")
+```
